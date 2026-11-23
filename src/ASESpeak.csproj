@@ -7,7 +7,24 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>ASESpeak</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(DefineConstants);WINDOWS</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <ESpeakTargetOS Condition="'$(ESpeakTargetOS)' == '' and $(RuntimeIdentifier.StartsWith('win'))">windows</ESpeakTargetOS>
+    <ESpeakTargetOS Condition="'$(ESpeakTargetOS)' == '' and $(RuntimeIdentifier.StartsWith('linux'))">linux</ESpeakTargetOS>
+    <ESpeakTargetOS Condition="'$(ESpeakTargetOS)' == '' and $(RuntimeIdentifier.StartsWith('osx'))">macos</ESpeakTargetOS>
+    <ESpeakTargetOS Condition="'$(ESpeakTargetOS)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">windows</ESpeakTargetOS>
+    <ESpeakTargetOS Condition="'$(ESpeakTargetOS)' == '' and $([MSBuild]::IsOSPlatform('OSX'))">macos</ESpeakTargetOS>
+    <ESpeakTargetOS Condition="'$(ESpeakTargetOS)' == ''">linux</ESpeakTargetOS>
+
+    <ESpeakHostOS Condition="$([MSBuild]::IsOSPlatform('Windows'))">windows</ESpeakHostOS>
+    <ESpeakHostOS Condition="$([MSBuild]::IsOSPlatform('OSX'))">macos</ESpeakHostOS>
+    <ESpeakHostOS Condition="'$(ESpeakHostOS)' == ''">linux</ESpeakHostOS>
+
+    <DefineConstants Condition="'$(ESpeakTargetOS)' == 'windows'">$(DefineConstants);WINDOWS</DefineConstants>
+
+    <OutputPath>bin\$(Configuration)\$(ESpeakTargetOS)\</OutputPath>
+    <IntermediateOutputPath>obj\$(Configuration)\$(ESpeakTargetOS)\</IntermediateOutputPath>
   </PropertyGroup>
 
   <!--
@@ -30,11 +47,16 @@
     <ESpeakSourceDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', 'espeak-ng'))</ESpeakSourceDir>
     <ESpeakBuildDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', 'build', 'espeak-ng'))</ESpeakBuildDir>
     <ESpeakBuildType Condition="'$(ESpeakBuildType)' == ''">Release</ESpeakBuildType>
-    <ESpeakLibName Condition="$([MSBuild]::IsOSPlatform('Linux'))">libespeak-ng.so</ESpeakLibName>
-    <ESpeakLibName Condition="$([MSBuild]::IsOSPlatform('OSX'))">libespeak-ng.dylib</ESpeakLibName>
-    <ESpeakLibName Condition="$([MSBuild]::IsOSPlatform('Windows'))">espeak-ng.dll</ESpeakLibName>
+    <ESpeakLibName Condition="'$(ESpeakHostOS)' == 'linux'">libespeak-ng.so</ESpeakLibName>
+    <ESpeakLibName Condition="'$(ESpeakHostOS)' == 'macos'">libespeak-ng.dylib</ESpeakLibName>
+    <ESpeakLibName Condition="'$(ESpeakHostOS)' == 'windows'">espeak-ng.dll</ESpeakLibName>
     <ESpeakCMakeCache>$(ESpeakBuildDir)CMakeCache.txt</ESpeakCMakeCache>
     <ESpeakCMakeArgsStamp>$(ESpeakBuildDir)asespeak-cmake-args.txt</ESpeakCMakeArgsStamp>
+
+    <ESpeakCrossWindows Condition="'$(ESpeakTargetOS)' == 'windows' and '$(ESpeakHostOS)' != 'windows'">true</ESpeakCrossWindows>
+    <ESpeakMinGWPrefix Condition="'$(ESpeakMinGWPrefix)' == ''">x86_64-w64-mingw32-</ESpeakMinGWPrefix>
+    <ESpeakCrossBuildDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', 'build', 'espeak-ng-windows'))</ESpeakCrossBuildDir>
+    <_ESpeakCrossCMakeArgs>-DCMAKE_SYSTEM_NAME=Windows -DCMAKE_C_COMPILER=$(ESpeakMinGWPrefix)gcc -DCMAKE_CXX_COMPILER=$(ESpeakMinGWPrefix)g++ -DCMAKE_RC_COMPILER=$(ESpeakMinGWPrefix)windres -DCMAKE_BUILD_TYPE=$(ESpeakBuildType) -DBUILD_SHARED_LIBS=ON -DESPEAK_BUILD_MANPAGES=OFF -DUSE_ASYNC=OFF -DUSE_LIBPCAUDIO=OFF -DENABLE_TESTS=OFF &quot;-DCMAKE_SHARED_LINKER_FLAGS=-static-libgcc -static&quot;</_ESpeakCrossCMakeArgs>
   </PropertyGroup>
 
   <ItemGroup>
@@ -63,8 +85,8 @@
       <ESpeakCMakeOption Condition="'%(Value)' == 'auto'"><Arg>-U%(Identity)</Arg></ESpeakCMakeOption>
     </ItemGroup>
     <PropertyGroup>
-      <_ESpeakCMakeArgs>-DCMAKE_BUILD_TYPE=$(ESpeakBuildType) -DBUILD_SHARED_LIBS=ON -DESPEAK_BUILD_MANPAGES=OFF @(ESpeakCMakeOption->'%(Arg)', ' ')</_ESpeakCMakeArgs>
-    </PropertyGroup>
+    	<_ESpeakCMakeArgs>-DCMAKE_BUILD_TYPE=$(ESpeakBuildType) -DBUILD_SHARED_LIBS=ON -DESPEAK_BUILD_MANPAGES=OFF @(ESpeakCMakeOption->'%(Arg)', ' ')</_ESpeakCMakeArgs>
+     </PropertyGroup>
 
     <ReadLinesFromFile File="$(ESpeakCMakeArgsStamp)" Condition="Exists('$(ESpeakCMakeArgsStamp)')">
       <Output TaskParameter="Lines" PropertyName="_ESpeakPrevCMakeArgs" />
@@ -75,8 +97,27 @@
 
     <Exec Command="cmake --build &quot;$(ESpeakBuildDir.TrimEnd('\/'))&quot; --config $(ESpeakBuildType) --target espeak-ng data" />
 
+    <PropertyGroup Condition="'$(ESpeakCrossWindows)' == 'true'">
+      <_ESpeakCrossArgs>@(ESpeakCMakeOption->'%(Arg)', ' ') $(_ESpeakCrossCMakeArgs)</_ESpeakCrossArgs>
+      <_ESpeakCrossCMakeCache>$(ESpeakCrossBuildDir)CMakeCache.txt</_ESpeakCrossCMakeCache>
+      <_ESpeakCrossArgsStamp>$(ESpeakCrossBuildDir)asespeak-cmake-args.txt</_ESpeakCrossArgsStamp>
+    </PropertyGroup>
+    <Exec Condition="'$(ESpeakCrossWindows)' == 'true'" Command="command -v $(ESpeakMinGWPrefix)gcc $(ESpeakMinGWPrefix)g++" StandardOutputImportance="low" IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="_ESpeakMinGWMissing" />
+    </Exec>
+    <Error Condition="'$(ESpeakCrossWindows)' == 'true' and '$(_ESpeakMinGWMissing)' != '0'"
+           Text="Building for Windows needs MinGW-w64 to cross-compile espeak-ng, and $(ESpeakMinGWPrefix)gcc / g++ aren't on PATH. Install it (Fedora: mingw64-gcc mingw64-gcc-c++, Debian/Ubuntu: mingw-w64, macOS: brew install mingw-w64), or set ESpeakMinGWPrefix." />
+    <ReadLinesFromFile File="$(_ESpeakCrossArgsStamp)" Condition="'$(ESpeakCrossWindows)' == 'true' and Exists('$(_ESpeakCrossArgsStamp)')">
+      <Output TaskParameter="Lines" PropertyName="_ESpeakPrevCrossArgs" />
+    </ReadLinesFromFile>
+    <Exec Condition="'$(ESpeakCrossWindows)' == 'true' and (!Exists('$(_ESpeakCrossCMakeCache)') or '$(_ESpeakPrevCrossArgs)' != '$(_ESpeakCrossArgs)')"
+          Command="cmake -S &quot;$(ESpeakSourceDir.TrimEnd('\/'))&quot; -B &quot;$(ESpeakCrossBuildDir.TrimEnd('\/'))&quot; $(_ESpeakCrossArgs)" />
+    <WriteLinesToFile Condition="'$(ESpeakCrossWindows)' == 'true'" File="$(_ESpeakCrossArgsStamp)" Lines="$(_ESpeakCrossArgs)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <Exec Condition="'$(ESpeakCrossWindows)' == 'true'" Command="cmake --build &quot;$(ESpeakCrossBuildDir.TrimEnd('\/'))&quot; --config $(ESpeakBuildType) --target espeak-ng" />
+
     <PropertyGroup>
-      <_ESpeakCMakeCacheText>$([System.IO.File]::ReadAllText('$(ESpeakCMakeCache)'))</_ESpeakCMakeCacheText>
+      <_ESpeakCMakeCacheText Condition="'$(ESpeakCrossWindows)' != 'true'">$([System.IO.File]::ReadAllText('$(ESpeakCMakeCache)'))</_ESpeakCMakeCacheText>
+      <_ESpeakCMakeCacheText Condition="'$(ESpeakCrossWindows)' == 'true'">$([System.IO.File]::ReadAllText('$(_ESpeakCrossCMakeCache)'))</_ESpeakCMakeCacheText>
     </PropertyGroup>
     <ItemGroup>
       <_ESpeakEnabledOption Include="@(ESpeakCMakeOption)"
@@ -89,10 +130,13 @@
   </Target>
 
   <Target Name="AddESpeakNativeItems" BeforeTargets="AssignTargetPaths" DependsOnTargets="BuildESpeakNative">
+    <Warning Condition="'$(ESpeakTargetOS)' != '$(ESpeakHostOS)' and '$(ESpeakCrossWindows)' != 'true'"
+             Text="Can't cross-compile espeak-ng for $(ESpeakTargetOS) from $(ESpeakHostOS); the build will have no native espeak-ng library, and TTS won't work in it. Build it on $(ESpeakTargetOS)." />
     <ItemGroup>
-      <ESpeakNativeLib Include="$(ESpeakBuildDir)src/libespeak-ng/**/$(ESpeakLibName)*" />
+      <ESpeakNativeLib Condition="'$(ESpeakTargetOS)' == '$(ESpeakHostOS)'" Include="$(ESpeakBuildDir)src/libespeak-ng/**/$(ESpeakLibName)*" />
       <ESpeakData Include="$(ESpeakBuildDir)espeak-ng-data/**/*" />
       <None Include="@(ESpeakNativeLib)" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+      <None Condition="'$(ESpeakCrossWindows)' == 'true'" Include="$(ESpeakCrossBuildDir)src/libespeak-ng.dll" Link="espeak-ng.dll" CopyToOutputDirectory="PreserveNewest" />
       <None Include="@(ESpeakData)" Link="espeak-ng-data/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
   </Target>
