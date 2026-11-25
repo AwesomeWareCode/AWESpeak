@@ -133,9 +133,11 @@
     <Warning Condition="'$(ESpeakTargetOS)' != '$(ESpeakHostOS)' and '$(ESpeakCrossWindows)' != 'true'"
              Text="Can't cross-compile espeak-ng for $(ESpeakTargetOS) from $(ESpeakHostOS); the build will have no native espeak-ng library, and TTS won't work in it. Build it on $(ESpeakTargetOS)." />
     <ItemGroup>
-      <ESpeakNativeLib Condition="'$(ESpeakTargetOS)' == '$(ESpeakHostOS)'" Include="$(ESpeakBuildDir)src/libespeak-ng/**/$(ESpeakLibName)*" />
+      <ESpeakNativeLib Condition="'$(ESpeakTargetOS)' == '$(ESpeakHostOS)' and '$(ESpeakHostOS)' != 'windows'" Include="$(ESpeakBuildDir)src/libespeak-ng/**/$(ESpeakLibName)*" />
+      <_ESpeakWindowsDll Condition="'$(ESpeakTargetOS)' == 'windows' and '$(ESpeakHostOS)' == 'windows'" Include="$(ESpeakBuildDir)src/$(ESpeakBuildType)/espeak-ng.dll;$(ESpeakBuildDir)src/espeak-ng.dll;$(ESpeakBuildDir)src/libespeak-ng.dll" />
       <ESpeakData Include="$(ESpeakBuildDir)espeak-ng-data/**/*" />
       <None Include="@(ESpeakNativeLib)" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+      <None Include="@(_ESpeakWindowsDll)" Condition="Exists('%(FullPath)')" Link="espeak-ng.dll" CopyToOutputDirectory="PreserveNewest" />
       <None Condition="'$(ESpeakCrossWindows)' == 'true'" Include="$(ESpeakCrossBuildDir)src/libespeak-ng.dll" Link="espeak-ng.dll" CopyToOutputDirectory="PreserveNewest" />
       <None Include="@(ESpeakData)" Link="espeak-ng-data/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
