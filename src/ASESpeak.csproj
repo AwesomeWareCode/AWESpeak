@@ -56,6 +56,12 @@
     <ESpeakCrossWindows Condition="'$(ESpeakTargetOS)' == 'windows' and '$(ESpeakHostOS)' != 'windows'">true</ESpeakCrossWindows>
     <ESpeakMinGWPrefix Condition="'$(ESpeakMinGWPrefix)' == ''">x86_64-w64-mingw32-</ESpeakMinGWPrefix>
     <ESpeakCrossBuildDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', 'build', 'espeak-ng-windows'))</ESpeakCrossBuildDir>
+    <_ESpeakRequestedArgsStamp>$(ESpeakBuildDir)asespeak-requested-args.txt</_ESpeakRequestedArgsStamp>
+    <_ESpeakBuiltStamp>$(ESpeakBuildDir)asespeak-built.stamp</_ESpeakBuiltStamp>
+    <_ESpeakCrossCMakeCache>$(ESpeakCrossBuildDir)CMakeCache.txt</_ESpeakCrossCMakeCache>
+    <_ESpeakCrossArgsStamp>$(ESpeakCrossBuildDir)asespeak-cmake-args.txt</_ESpeakCrossArgsStamp>
+    <_ESpeakCrossRequestedArgsStamp>$(ESpeakCrossBuildDir)asespeak-requested-args.txt</_ESpeakCrossRequestedArgsStamp>
+    <_ESpeakCrossBuiltStamp>$(ESpeakCrossBuildDir)asespeak-built.stamp</_ESpeakCrossBuiltStamp>
     <_ESpeakCrossCMakeArgs>-DCMAKE_SYSTEM_NAME=Windows -DCMAKE_C_COMPILER=$(ESpeakMinGWPrefix)gcc -DCMAKE_CXX_COMPILER=$(ESpeakMinGWPrefix)g++ -DCMAKE_RC_COMPILER=$(ESpeakMinGWPrefix)windres -DCMAKE_BUILD_TYPE=$(ESpeakBuildType) -DBUILD_SHARED_LIBS=ON -DESPEAK_BUILD_MANPAGES=OFF -DUSE_ASYNC=OFF -DUSE_LIBPCAUDIO=OFF -DENABLE_TESTS=OFF &quot;-DCMAKE_SHARED_LINKER_FLAGS=-static-libgcc -static&quot;</_ESpeakCrossCMakeArgs>
   </PropertyGroup>
 
@@ -72,7 +78,11 @@
     <ESpeakCMakeOption Include="WITH_COVERAGE" Value="$(ESpeakWithCoverage)" Define="ESPEAK_WITH_COVERAGE" />
   </ItemGroup>
 
-  <Target Name="BuildESpeakNative">
+  <ItemGroup>
+    <_ESpeakSourceInputs Include="$(ESpeakSourceDir)**/*" Exclude="$(ESpeakSourceDir).git/**" />
+  </ItemGroup>
+
+  <Target Name="_ESpeakComputeCMakeArgs">
     <Error Condition="!Exists('$(ESpeakSourceDir)CMakeLists.txt')"
            Text="espeak-ng submodule is missing. Run: git submodule update --init" />
     <Error Condition="'%(ESpeakCMakeOption.Value)' != 'true' and '%(ESpeakCMakeOption.Value)' != 'false' and '%(ESpeakCMakeOption.Value)' != 'auto'"
@@ -85,9 +95,17 @@
       <ESpeakCMakeOption Condition="'%(Value)' == 'auto'"><Arg>-U%(Identity)</Arg></ESpeakCMakeOption>
     </ItemGroup>
     <PropertyGroup>
-    	<_ESpeakCMakeArgs>-DCMAKE_BUILD_TYPE=$(ESpeakBuildType) -DBUILD_SHARED_LIBS=ON -DESPEAK_BUILD_MANPAGES=OFF @(ESpeakCMakeOption->'%(Arg)', ' ')</_ESpeakCMakeArgs>
-     </PropertyGroup>
+      <_ESpeakCMakeArgs>-DCMAKE_BUILD_TYPE=$(ESpeakBuildType) -DBUILD_SHARED_LIBS=ON -DESPEAK_BUILD_MANPAGES=OFF @(ESpeakCMakeOption->'%(Arg)', ' ')</_ESpeakCMakeArgs>
+      <_ESpeakCrossArgs>@(ESpeakCMakeOption->'%(Arg)', ' ') $(_ESpeakCrossCMakeArgs)</_ESpeakCrossArgs>
+    </PropertyGroup>
 
+    <MakeDir Directories="$(ESpeakBuildDir);$(ESpeakCrossBuildDir)" />
+    <WriteLinesToFile File="$(_ESpeakRequestedArgsStamp)" Lines="$(_ESpeakCMakeArgs)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <WriteLinesToFile Condition="'$(ESpeakCrossWindows)' == 'true'" File="$(_ESpeakCrossRequestedArgsStamp)" Lines="$(_ESpeakCrossArgs)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
+  <Target Name="_ESpeakBuildHost" DependsOnTargets="_ESpeakComputeCMakeArgs"
+          Inputs="@(_ESpeakSourceInputs);$(_ESpeakRequestedArgsStamp)" Outputs="$(_ESpeakBuiltStamp)">
     <ReadLinesFromFile File="$(ESpeakCMakeArgsStamp)" Condition="Exists('$(ESpeakCMakeArgsStamp)')">
       <Output TaskParameter="Lines" PropertyName="_ESpeakPrevCMakeArgs" />
     </ReadLinesFromFile>
@@ -96,25 +114,27 @@
     <WriteLinesToFile File="$(ESpeakCMakeArgsStamp)" Lines="$(_ESpeakCMakeArgs)" Overwrite="true" WriteOnlyWhenDifferent="true" />
 
     <Exec Command="cmake --build &quot;$(ESpeakBuildDir.TrimEnd('\/'))&quot; --config $(ESpeakBuildType) --target espeak-ng data" />
+    <Touch Files="$(_ESpeakBuiltStamp)" AlwaysCreate="true" />
+  </Target>
 
-    <PropertyGroup Condition="'$(ESpeakCrossWindows)' == 'true'">
-      <_ESpeakCrossArgs>@(ESpeakCMakeOption->'%(Arg)', ' ') $(_ESpeakCrossCMakeArgs)</_ESpeakCrossArgs>
-      <_ESpeakCrossCMakeCache>$(ESpeakCrossBuildDir)CMakeCache.txt</_ESpeakCrossCMakeCache>
-      <_ESpeakCrossArgsStamp>$(ESpeakCrossBuildDir)asespeak-cmake-args.txt</_ESpeakCrossArgsStamp>
-    </PropertyGroup>
-    <Exec Condition="'$(ESpeakCrossWindows)' == 'true'" Command="command -v $(ESpeakMinGWPrefix)gcc $(ESpeakMinGWPrefix)g++" StandardOutputImportance="low" IgnoreExitCode="true">
+  <Target Name="_ESpeakBuildCrossWindows" DependsOnTargets="_ESpeakComputeCMakeArgs" Condition="'$(ESpeakCrossWindows)' == 'true'"
+          Inputs="@(_ESpeakSourceInputs);$(_ESpeakCrossRequestedArgsStamp)" Outputs="$(_ESpeakCrossBuiltStamp)">
+    <Exec Command="command -v $(ESpeakMinGWPrefix)gcc $(ESpeakMinGWPrefix)g++" StandardOutputImportance="low" IgnoreExitCode="true">
       <Output TaskParameter="ExitCode" PropertyName="_ESpeakMinGWMissing" />
     </Exec>
-    <Error Condition="'$(ESpeakCrossWindows)' == 'true' and '$(_ESpeakMinGWMissing)' != '0'"
+    <Error Condition="'$(_ESpeakMinGWMissing)' != '0'"
            Text="Building for Windows needs MinGW-w64 to cross-compile espeak-ng, and $(ESpeakMinGWPrefix)gcc / g++ aren't on PATH. Install it (Fedora: mingw64-gcc mingw64-gcc-c++, Debian/Ubuntu: mingw-w64, macOS: brew install mingw-w64), or set ESpeakMinGWPrefix." />
-    <ReadLinesFromFile File="$(_ESpeakCrossArgsStamp)" Condition="'$(ESpeakCrossWindows)' == 'true' and Exists('$(_ESpeakCrossArgsStamp)')">
+    <ReadLinesFromFile File="$(_ESpeakCrossArgsStamp)" Condition="Exists('$(_ESpeakCrossArgsStamp)')">
       <Output TaskParameter="Lines" PropertyName="_ESpeakPrevCrossArgs" />
     </ReadLinesFromFile>
-    <Exec Condition="'$(ESpeakCrossWindows)' == 'true' and (!Exists('$(_ESpeakCrossCMakeCache)') or '$(_ESpeakPrevCrossArgs)' != '$(_ESpeakCrossArgs)')"
+    <Exec Condition="!Exists('$(_ESpeakCrossCMakeCache)') or '$(_ESpeakPrevCrossArgs)' != '$(_ESpeakCrossArgs)'"
           Command="cmake -S &quot;$(ESpeakSourceDir.TrimEnd('\/'))&quot; -B &quot;$(ESpeakCrossBuildDir.TrimEnd('\/'))&quot; $(_ESpeakCrossArgs)" />
-    <WriteLinesToFile Condition="'$(ESpeakCrossWindows)' == 'true'" File="$(_ESpeakCrossArgsStamp)" Lines="$(_ESpeakCrossArgs)" Overwrite="true" WriteOnlyWhenDifferent="true" />
-    <Exec Condition="'$(ESpeakCrossWindows)' == 'true'" Command="cmake --build &quot;$(ESpeakCrossBuildDir.TrimEnd('\/'))&quot; --config $(ESpeakBuildType) --target espeak-ng" />
+    <WriteLinesToFile File="$(_ESpeakCrossArgsStamp)" Lines="$(_ESpeakCrossArgs)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <Exec Command="cmake --build &quot;$(ESpeakCrossBuildDir.TrimEnd('\/'))&quot; --config $(ESpeakBuildType) --target espeak-ng" />
+    <Touch Files="$(_ESpeakCrossBuiltStamp)" AlwaysCreate="true" />
+  </Target>
 
+  <Target Name="BuildESpeakNative" DependsOnTargets="_ESpeakBuildHost;_ESpeakBuildCrossWindows">
     <PropertyGroup>
       <_ESpeakCMakeCacheText Condition="'$(ESpeakCrossWindows)' != 'true'">$([System.IO.File]::ReadAllText('$(ESpeakCMakeCache)'))</_ESpeakCMakeCacheText>
       <_ESpeakCMakeCacheText Condition="'$(ESpeakCrossWindows)' == 'true'">$([System.IO.File]::ReadAllText('$(_ESpeakCrossCMakeCache)'))</_ESpeakCMakeCacheText>
